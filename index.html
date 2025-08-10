@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Happy Birthday Reem - Level 1</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0f172a; /* slate-900 */
+        overflow: hidden;
+        touch-action: none; /* better mobile touch */
+      }
+      #game {
+        width: 100vw;
+        height: 100vh;
+      }
+      .footer-note {
+        position: fixed;
+        bottom: 6px;
+        right: 10px;
+        color: #94a3b8;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        font-size: 12px;
+        opacity: 0.6;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game" tabindex="0"></div>
+    <div class="footer-note">Tap left/right to move, A/Space to jump</div>
+
+    <!-- Phaser (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.js"></script>
+
+    <!-- Game Scenes and Main -->
+    <script src="src/audio/SimpleAudio.js"></script>
+    <script src="src/scenes/MenuScene.js"></script>
+    <script src="src/scenes/PlayScene.js"></script>
+    <script src="src/scenes/BirthdayScene.js"></script>
+    <script src="src/main.js"></script>
+  </body>
+  </html>
+
+
