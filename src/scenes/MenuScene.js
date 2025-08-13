@@ -12,6 +12,7 @@ class MenuScene extends Phaser.Scene {
     // On first user interaction, try to enter fullscreen and lock landscape on mobile
     const requestFullscreenOnce = () => {
       this.input.off('pointerdown', requestFullscreenOnce);
+      // iOS Safari requires a user gesture; we request fullscreen but also size via VH fallbacks
       if (this.scale && !this.scale.isFullscreen && this.scale.startFullscreen) {
         try { this.scale.startFullscreen(); } catch (e) { /* noop */ }
       }

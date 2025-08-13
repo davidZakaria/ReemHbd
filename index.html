@@ -12,6 +12,9 @@
         margin: 0;
         padding: 0;
         height: 100%;
+        min-height: 100vh;
+        min-height: 100dvh; /* modern mobile */
+        height: -webkit-fill-available; /* iOS Safari */
         background: #0f172a; /* slate-900 */
         overflow: hidden;
         touch-action: none; /* better mobile touch */
@@ -19,6 +22,8 @@
       #game {
         width: 100vw;
         height: 100vh;
+        height: 100dvh; /* prefer dynamic viewport */
+        height: -webkit-fill-available; /* iOS Safari */
       }
       .footer-note {
         position: fixed;
