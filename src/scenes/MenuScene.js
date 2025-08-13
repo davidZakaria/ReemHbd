@@ -24,6 +24,33 @@ class MenuScene extends Phaser.Scene {
     };
     this.input.on('pointerdown', requestFullscreenOnce);
 
+    // Explicit Full Screen button for Safari/iOS (Safari may ignore automatic requests)
+    const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+    if (!isStandalone) {
+      const fsBtn = this.add.text(width - 10, 10, 'Full Screen', {
+        fontFamily: 'Arial, Helvetica, sans-serif',
+        fontSize: '14px',
+        color: '#0f172a',
+        backgroundColor: '#f1f5f9',
+        padding: { x: 10, y: 6 },
+      }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+      fsBtn.on('pointerdown', () => {
+        if (this.scale && !this.scale.isFullscreen && this.scale.startFullscreen) {
+          try { this.scale.startFullscreen(); } catch (e) { /* noop */ }
+        }
+        const canLock = typeof screen !== 'undefined' && screen.orientation && screen.orientation.lock;
+        if (canLock) {
+          screen.orientation.lock('portrait-primary').catch(() => {});
+        }
+      });
+      // Gentle hint for iOS users
+      this.add.text(width / 2, height - 18, 'Tip: On iPhone, Add to Home Screen for true full screen', {
+        fontFamily: 'Arial, Helvetica, sans-serif',
+        fontSize: '12px',
+        color: '#94a3b8',
+      }).setOrigin(0.5);
+    }
+
     this.add.text(width / 2, 90, 'Happy Birthday Reem!', {
       fontFamily: 'Arial, Helvetica, sans-serif',
       fontSize: '32px',
