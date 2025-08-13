@@ -485,6 +485,19 @@ class PlayScene extends Phaser.Scene {
 
     // Full Screen button (in-game) for Safari/iOS cases
     const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+    const enterFullscreenPortable = async () => {
+      try {
+        const el = document.documentElement;
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if (this.scale && this.scale.startFullscreen) this.scale.startFullscreen();
+      } catch (_) { /* noop */ }
+      if (screen && screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('portrait-primary').catch(() => {});
+      }
+      window.scrollTo(0, 1);
+      if (this.scale && this.scale.refresh) this.scale.refresh();
+    };
     if (!isStandalone) {
       const fsBtn = this.add.text(this.scale.width - 12, 12, 'Full Screen', {
         fontFamily: 'Arial, Helvetica, sans-serif',
@@ -493,15 +506,7 @@ class PlayScene extends Phaser.Scene {
         backgroundColor: '#f1f5f9',
         padding: { x: 12, y: 8 },
       }).setScrollFactor(0).setDepth(3000).setOrigin(1, 0).setInteractive({ useHandCursor: true });
-      fsBtn.on('pointerdown', () => {
-        if (this.scale && !this.scale.isFullscreen && this.scale.startFullscreen) {
-          try { this.scale.startFullscreen(); } catch (e) { /* noop */ }
-        }
-        const canLock = typeof screen !== 'undefined' && screen.orientation && screen.orientation.lock;
-        if (canLock) {
-          screen.orientation.lock('portrait-primary').catch(() => {});
-        }
-      });
+      fsBtn.on('pointerdown', () => { enterFullscreenPortable(); });
     }
 
     // World bounds

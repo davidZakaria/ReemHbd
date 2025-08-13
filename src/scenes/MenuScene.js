@@ -24,6 +24,22 @@ class MenuScene extends Phaser.Scene {
     };
     this.input.on('pointerdown', requestFullscreenOnce);
 
+    const enterFullscreenPortable = async () => {
+      try {
+        const el = document.documentElement;
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if (this.scale && this.scale.startFullscreen) this.scale.startFullscreen();
+      } catch (_) { /* noop */ }
+      // Best-effort orientation lock
+      if (screen && screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('portrait-primary').catch(() => {});
+      }
+      // Fallback: scroll hack on iOS and resize game area
+      window.scrollTo(0, 1);
+      if (this.scale && this.scale.refresh) this.scale.refresh();
+    };
+
     // Explicit Full Screen button for Safari/iOS (Safari may ignore automatic requests)
     const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
     if (!isStandalone) {
@@ -34,15 +50,7 @@ class MenuScene extends Phaser.Scene {
         backgroundColor: '#f1f5f9',
         padding: { x: 12, y: 8 },
       }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
-      fsBtn.on('pointerdown', () => {
-        if (this.scale && !this.scale.isFullscreen && this.scale.startFullscreen) {
-          try { this.scale.startFullscreen(); } catch (e) { /* noop */ }
-        }
-        const canLock = typeof screen !== 'undefined' && screen.orientation && screen.orientation.lock;
-        if (canLock) {
-          screen.orientation.lock('portrait-primary').catch(() => {});
-        }
-      });
+      fsBtn.on('pointerdown', () => { enterFullscreenPortable(); });
       // Gentle hint for iOS users
       this.add.text(width / 2, height - 18, 'Tip: On iPhone, Add to Home Screen for true full screen', {
         fontFamily: 'Arial, Helvetica, sans-serif',
