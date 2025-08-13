@@ -31,6 +31,11 @@ window.addEventListener('load', () => {
   }
   const gameInstance = new Phaser.Game(config);
   window.phaserGame = gameInstance;
+
+  // Register service worker for PWA install/fullscreen A2HS
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/src/sw.js').catch(() => {});
+  }
 });
 
 
