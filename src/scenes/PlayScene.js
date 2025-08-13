@@ -475,11 +475,34 @@ class PlayScene extends Phaser.Scene {
       this.time.delayedCall(150, () => this.scene.start('BirthdayScene'));
     });
 
-    // Camera follow
+    // Camera follow with downward offset so the ground and player are visible on tall screens
     if (this.playerBody) {
       this.cameras.main.startFollow(this.playerBody, true, 0.1, 0.1);
+      this.cameras.main.setLerp(0.1, 0.2);
+      this.cameras.main.setFollowOffset(0, -40);
     }
     this.cameras.main.setBounds(0, 0, this.worldWidth, h);
+
+    // Full Screen button (in-game) for Safari/iOS cases
+    const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+    if (!isStandalone) {
+      const fsBtn = this.add.text(this.scale.width - 12, 12, 'Full Screen', {
+        fontFamily: 'Arial, Helvetica, sans-serif',
+        fontSize: '16px',
+        color: '#0f172a',
+        backgroundColor: '#f1f5f9',
+        padding: { x: 12, y: 8 },
+      }).setScrollFactor(0).setDepth(3000).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+      fsBtn.on('pointerdown', () => {
+        if (this.scale && !this.scale.isFullscreen && this.scale.startFullscreen) {
+          try { this.scale.startFullscreen(); } catch (e) { /* noop */ }
+        }
+        const canLock = typeof screen !== 'undefined' && screen.orientation && screen.orientation.lock;
+        if (canLock) {
+          screen.orientation.lock('portrait-primary').catch(() => {});
+        }
+      });
+    }
 
     // World bounds
     this.physics.world.setBounds(0, 0, this.worldWidth, h);

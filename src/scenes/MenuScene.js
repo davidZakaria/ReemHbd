@@ -27,12 +27,12 @@ class MenuScene extends Phaser.Scene {
     // Explicit Full Screen button for Safari/iOS (Safari may ignore automatic requests)
     const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
     if (!isStandalone) {
-      const fsBtn = this.add.text(width - 10, 10, 'Full Screen', {
+      const fsBtn = this.add.text(width - 12, 12, 'Full Screen', {
         fontFamily: 'Arial, Helvetica, sans-serif',
-        fontSize: '14px',
+        fontSize: '16px',
         color: '#0f172a',
         backgroundColor: '#f1f5f9',
-        padding: { x: 10, y: 6 },
+        padding: { x: 12, y: 8 },
       }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
       fsBtn.on('pointerdown', () => {
         if (this.scale && !this.scale.isFullscreen && this.scale.startFullscreen) {
