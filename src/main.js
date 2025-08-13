@@ -1,11 +1,14 @@
 /* global Phaser, MenuScene, PlayScene, BirthdayScene */
 
+const params = new URLSearchParams(window.location.search);
+const arcadeDebug = params.get('debug') === '1' || params.get('debug') === 'true';
+
 const config = {
   type: Phaser.AUTO,
   parent: 'game',
   backgroundColor: '#93c5fd',
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 800,
     height: 450,
@@ -14,20 +17,19 @@ const config = {
     default: 'arcade',
     arcade: {
       gravity: { y: 1000 },
-      debug: false,
+      debug: arcadeDebug,
     },
   },
   scene: [MenuScene, PlayScene, BirthdayScene],
 };
 
 window.addEventListener('load', () => {
-  // eslint-disable-next-line no-new
-  new Phaser.Game(config);
-  // Start at menu
-  window.game && window.game.destroy(true);
-  // eslint-disable-next-line no-new
-  const game = new Phaser.Game(config);
-  window.game = game;
+  // Clean up any previous instance (avoid clashing with the DOM element id `game`)
+  if (window.phaserGame && typeof window.phaserGame.destroy === 'function') {
+    window.phaserGame.destroy(true);
+  }
+  const gameInstance = new Phaser.Game(config);
+  window.phaserGame = gameInstance;
 });
 
 

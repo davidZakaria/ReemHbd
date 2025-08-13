@@ -9,6 +9,20 @@ class MenuScene extends Phaser.Scene {
     const { width, height } = this.scale;
     this.cameras.main.setBackgroundColor('#0f172a');
 
+    // On first user interaction, try to enter fullscreen and lock landscape on mobile
+    const requestFullscreenOnce = () => {
+      this.input.off('pointerdown', requestFullscreenOnce);
+      if (this.scale && !this.scale.isFullscreen && this.scale.startFullscreen) {
+        try { this.scale.startFullscreen(); } catch (e) { /* noop */ }
+      }
+      const canLock = typeof screen !== 'undefined' && screen.orientation && screen.orientation.lock;
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (isMobile && canLock) {
+        screen.orientation.lock('portrait-primary').catch(() => {});
+      }
+    };
+    this.input.on('pointerdown', requestFullscreenOnce);
+
     this.add.text(width / 2, 90, 'Happy Birthday Reem!', {
       fontFamily: 'Arial, Helvetica, sans-serif',
       fontSize: '32px',
@@ -34,6 +48,10 @@ class MenuScene extends Phaser.Scene {
       btn.on('pointerdown', async () => {
         await SimpleAudio.ensureRunning();
         SimpleAudio.startMusic();
+        // safety: attempt fullscreen again on level start
+        if (this.scale && !this.scale.isFullscreen && this.scale.startFullscreen) {
+          try { this.scale.startFullscreen(); } catch (e) { /* noop */ }
+        }
         this.scene.start('PlayScene', config);
       });
     };

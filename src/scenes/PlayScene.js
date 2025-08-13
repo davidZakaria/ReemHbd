@@ -5,6 +5,70 @@ class PlayScene extends Phaser.Scene {
     super('PlayScene');
   }
 
+  alignPlayerToGround() {
+    if (!this.playerBody || !this.playerBody.body) return;
+    const groundTop = this.useTiles ? this.scale.height - 32 : this.scale.height - 16;
+    const desiredBottom = groundTop;
+    const bodyBottom = this.playerBody.body.bottom;
+    const deltaY = desiredBottom - bodyBottom;
+    if (deltaY !== 0) {
+      this.playerBody.y += deltaY;
+      if (this.playerBody.body.updateFromGameObject) this.playerBody.body.updateFromGameObject();
+    }
+  }
+
+  getGroundTopY() {
+    return this.useTiles ? this.scale.height - 32 : this.scale.height - 16;
+  }
+
+  safeRespawn() {
+    const groundTop = this.getGroundTopY();
+    const dropY = Math.max(0, (this.respawnPoint?.y ?? (groundTop - 6)) - (this.respawnDropHeight ?? 100));
+    const dropX = this.respawnPoint?.x ?? 40;
+    this.playerBody.setVelocity(0, 0);
+    this.playerBody.setX(dropX);
+    this.playerBody.setY(dropY);
+    if (this.playerBody.body.updateFromGameObject) this.playerBody.body.updateFromGameObject();
+  }
+
+  createPlayerEntities() {
+    const h = this.scale.height;
+    const groundTopY = this.getGroundTopY();
+    const startX = typeof this.spawnX === 'number' ? this.spawnX : 16;
+    const startY = typeof this.spawnYOffset === 'number' ? (h - this.spawnYOffset) : (groundTopY + 1);
+
+    // Physics body (invisible)
+    this.playerBody = this.physics.add.sprite(startX, startY, 'spark');
+    this.playerBody.setVisible(false);
+    // Allow falling off the bottom to drop into pits; we handle reset ourselves
+    this.playerBody.setCollideWorldBounds(false);
+    this.playerBody.setMaxVelocity(200, 600);
+    this.playerBody.setDragX(1600);
+    this.playerBody.body.setSize(12, 22);
+    this.playerBody.body.setOffset(0, 0);
+
+    // Visual sprite (no physics)
+    const visualKey = this.hasSheet ? 'playerSheet' : (this.useCustomPlayer ? 'playerCustom' : 'player_idle');
+    this.playerSprite = this.add.sprite(this.playerBody.x, this.playerBody.body.bottom, visualKey);
+    this.playerSprite.setOrigin(0.5, 1);
+
+    // Scale visual by display height if provided
+    if (typeof this.playerScale === 'number' && this.playerScale > 0) {
+      this.playerSprite.setScale(this.playerScale);
+    } else if (this.hasSheet && typeof this.playerDisplayHeight === 'number' && this.playerDisplayHeight > 0) {
+      const baseFh = this.playerFrameHeight || 32;
+      const s = Math.max(0.05, Math.min(1, this.playerDisplayHeight / baseFh));
+      this.playerSprite.setScale(s);
+      this.playerScale = s;
+    } else if (this.hasSheet) {
+      const targetDisplayHeight = 52;
+      const baseFh = this.playerFrameHeight || 32;
+      const s = Math.max(0.05, Math.min(1, targetDisplayHeight / baseFh));
+      this.playerSprite.setScale(s);
+      this.playerScale = s;
+    }
+  }
+
   preload() {
     // Simple placeholder assets via generated textures
 
@@ -169,7 +233,7 @@ class PlayScene extends Phaser.Scene {
     // Usage: add ?art=1&player=1 to the URL after you place files into /assets
     const params = new URLSearchParams(window.location.search);
     const enableArt = params.get('art') === '1' || params.get('art') === 'true';
-    const enablePlayer = params.get('player') === '1' || params.get('player') === 'true';
+    const enablePlayer = true; // always attempt to load player assets
     if (enableArt) {
       this.load.spritesheet('tiles', 'assets/tileset.png', { frameWidth: 16, frameHeight: 16 });
       this.load.spritesheet('coinSprite', 'assets/coin.png', { frameWidth: 16, frameHeight: 16 });
@@ -177,11 +241,54 @@ class PlayScene extends Phaser.Scene {
     }
     if (enablePlayer) {
       this.load.image('playerCustom', 'assets/player.png');
-      const pfw = Number.parseInt(params.get('pfw') || '24', 10);
-      const pfh = Number.parseInt(params.get('pfh') || '32', 10);
+      // Default to your sheet frame size (1024x1536 sheet = 4x3 grid → 256x512 frames)
+      const pfw = Number.parseInt(params.get('pfw') || '256', 10);
+      const pfh = Number.parseInt(params.get('pfh') || '512', 10);
       this.playerFrameWidth = pfw;
       this.playerFrameHeight = pfh;
       this.load.spritesheet('playerSheet', 'assets/player_sheet.png', { frameWidth: pfw, frameHeight: pfh });
+      const ps = Number.parseFloat(params.get('ps') || '0');
+      if (!Number.isNaN(ps) && ps > 0) {
+        this.playerScale = ps;
+      }
+      const pdh = Number.parseInt(params.get('pdh') || '', 10);
+      if (!Number.isNaN(pdh) && pdh > 0) {
+        this.playerDisplayHeight = pdh; // desired on-screen height in pixels
+      }
+      // Optional cropping of the frame to remove padding in source pixels
+      const ct = Number.parseInt(params.get('ct') || '0', 10);
+      const cb = Number.parseInt(params.get('cb') || '0', 10);
+      const cl = Number.parseInt(params.get('cl') || '0', 10);
+      const cr = Number.parseInt(params.get('cr') || '0', 10);
+      this.cropTop = Number.isFinite(ct) && ct > 0 ? ct : 0;
+      this.cropBottom = Number.isFinite(cb) && cb > 0 ? cb : 0;
+      this.cropLeft = Number.isFinite(cl) && cl > 0 ? cl : 0;
+      this.cropRight = Number.isFinite(cr) && cr > 0 ? cr : 0;
+      // Calibration for physics body (fractions or fixed pixel size)
+      const bwf = Number.parseFloat(params.get('bwf') || '0'); // body width fraction of display width
+      const bhf = Number.parseFloat(params.get('bhf') || '0'); // body height fraction of display height
+      const byf = Number.parseFloat(params.get('byf') || '0'); // body bottom padding fraction of display height
+      if (bwf > 0) this.bodyWidthFraction = Math.max(0.1, Math.min(1, bwf));
+      if (bhf > 0) this.bodyHeightFraction = Math.max(0.1, Math.min(1, bhf));
+      if (byf > 0) this.bodyBottomPadFraction = Math.max(0, Math.min(0.5, byf));
+      const bwpx = Number.parseInt(params.get('bwpx') || '', 10); // body width in world pixels
+      const bhpx = Number.parseInt(params.get('bhpx') || '', 10); // body height in world pixels
+      if (!Number.isNaN(bwpx) && bwpx > 0) this.bodyWidthPx = bwpx;
+      if (!Number.isNaN(bhpx) && bhpx > 0) this.bodyHeightPx = bhpx;
+      const fpx = Number.parseInt(params.get('fpx') || '', 10); // legacy param (now superseded by rp)
+      if (!Number.isNaN(fpx) && fpx >= 0) this.footOffsetPx = fpx;
+      const rp = Number.parseInt(params.get('rp') || '', 10); // raise sprite above body by N px
+      if (!Number.isNaN(rp)) this.bodyRaisePx = rp;
+      // Optional spawn position tuning
+      const sx = Number.parseInt(params.get('sx') || '', 10);
+      if (!Number.isNaN(sx)) this.spawnX = sx;
+      const sy = Number.parseInt(params.get('sy') || '', 10); // y offset from bottom edge
+      if (!Number.isNaN(sy)) this.spawnYOffset = sy;
+      // Respawn/drop and flash tuning
+      const rdh = Number.parseInt(params.get('rdh') || '', 10); // respawn drop height
+      if (!Number.isNaN(rdh) && rdh >= 0) this.respawnDropHeight = rdh;
+      const flashMs = Number.parseInt(params.get('flash') || '', 10); // death flash duration ms
+      if (!Number.isNaN(flashMs) && flashMs >= 0) this.deathFlashMs = flashMs;
     }
   }
 
@@ -191,10 +298,45 @@ class PlayScene extends Phaser.Scene {
     this.worldWidth = 3000;
     this.difficulty = data?.difficulty || 'normal';
     this.enemySpeed = data?.enemySpeed ?? 70;
+    this.respawnDropHeight = typeof this.respawnDropHeight === 'number' ? this.respawnDropHeight : 120; // default drop
+    this.deathFlashMs = typeof this.deathFlashMs === 'number' ? this.deathFlashMs : 250; // default flash
     // Determine availability of external assets
     this.useTiles = this.textures.exists('tiles');
     this.useCoinSheet = this.textures.exists('coinSprite');
     this.useEnemySheet = this.textures.exists('enemySprite');
+    this.disableAnimations = false; // re-enable animations for launch
+
+    // If a player sheet exists, post-process it to remove white backgrounds (chroma key)
+    if (this.textures.exists('playerSheet')) {
+      const fwKey = this.playerFrameWidth || 24;
+      const fhKey = this.playerFrameHeight || 32;
+      const srcImg = this.textures.get('playerSheet').getSourceImage();
+      if (srcImg && srcImg.width && srcImg.height) {
+        const canvas = document.createElement('canvas');
+        canvas.width = srcImg.width;
+        canvas.height = srcImg.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(srcImg, 0, 0);
+        try {
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const d = imgData.data;
+          for (let i = 0; i < d.length; i += 4) {
+            const r = d[i];
+            const g = d[i + 1];
+            const b = d[i + 2];
+            // If pixel is near white, make it transparent
+            if (r > 245 && g > 245 && b > 245) {
+              d[i + 3] = 0;
+            }
+          }
+          ctx.putImageData(imgData, 0, 0);
+          this.textures.remove('playerSheet');
+          this.textures.addSpriteSheet('playerSheet', canvas, { frameWidth: fwKey, frameHeight: fhKey });
+        } catch (e) {
+          // If getImageData fails (tainted canvas), skip processing gracefully
+        }
+      }
+    }
 
     // Background clouds
     for (let i = 0; i < 6; i += 1) {
@@ -253,41 +395,49 @@ class PlayScene extends Phaser.Scene {
     // End flag
     this.endFlag = this.physics.add.staticImage(this.worldWidth - 120, this.useTiles ? h - 0 : h - 16, 'flag').setOrigin(0, 1).setScale(this.useTiles ? 2 : 1);
 
-    // Player
-    const hasSheet = this.textures.exists('playerSheet');
+    // Player: use separate physics body and visual sprite
+    this.hasSheet = this.textures.exists('playerSheet');
     this.useCustomPlayer = this.textures.exists('playerCustom') && this.textures.get('playerCustom').source[0]?.height > 0;
-    const playerKey = hasSheet ? 'playerSheet' : (this.useCustomPlayer ? 'playerCustom' : 'player_idle');
-    this.player = this.physics.add.sprite(40, h - 60, playerKey);
-    this.player.setCollideWorldBounds(true);
-    if (hasSheet) {
-      const bw = Math.floor((this.playerFrameWidth || 24) * 0.6);
-      const bh = Math.floor((this.playerFrameHeight || 32) * 0.9);
-      this.player.body.setSize(bw, bh);
-      this.player.body.setOffset(((this.playerFrameWidth || 24) - bw) / 2, (this.playerFrameHeight || 32) - bh);
-    } else if (!this.useCustomPlayer) {
-      this.player.body.setSize(16, 28);
-      this.player.body.setOffset(0, 0);
-    } else {
-      // Reasonable default body for custom image
-      const bw = Math.floor(this.player.displayWidth * 0.6);
-      const bh = Math.floor(this.player.displayHeight * 0.9);
-      this.player.body.setSize(bw, bh);
-      this.player.body.setOffset((this.player.displayWidth - bw) / 2, this.player.displayHeight - bh);
-    }
+    this.createPlayerEntities();
 
     // Animations
-    if (hasSheet) {
-      // Expecting rows: idle=0 (2 frames), walk=1 (6 frames), jump=2 (1 frame), fall=3 (1 frame), hurt=4 (1 frame)
+    if (this.playerSprite && this.playerSprite.anims && this.hasSheet) {
+      // Flexible sheet support. We will only create animations for rows that exist
+      // and clamp frame counts to the available columns.
       const fw = this.playerFrameWidth || 24;
       const fh = this.playerFrameHeight || 32;
-      const framesPerRow = Math.floor(this.textures.get('playerSheet').getSourceImage().width / fw);
-      const row = (r, count) => ({ start: r * framesPerRow, end: r * framesPerRow + count - 1 });
-      if (!this.anims.exists('p-idle')) this.anims.create({ key: 'p-idle', frames: this.anims.generateFrameNumbers('playerSheet', row(0, 2)), frameRate: 4, repeat: -1 });
-      if (!this.anims.exists('p-walk')) this.anims.create({ key: 'p-walk', frames: this.anims.generateFrameNumbers('playerSheet', row(1, 6)), frameRate: 10, repeat: -1 });
-      if (!this.anims.exists('p-jump')) this.anims.create({ key: 'p-jump', frames: this.anims.generateFrameNumbers('playerSheet', row(2, 1)), frameRate: 1, repeat: -1 });
-      if (!this.anims.exists('p-fall')) this.anims.create({ key: 'p-fall', frames: this.anims.generateFrameNumbers('playerSheet', row(3, 1)), frameRate: 1, repeat: -1 });
-      if (!this.anims.exists('p-hurt')) this.anims.create({ key: 'p-hurt', frames: this.anims.generateFrameNumbers('playerSheet', row(4, 1)), frameRate: 1, repeat: -1 });
-      this.player.anims.play('p-idle');
+      const sheetImage = this.textures.get('playerSheet').getSourceImage();
+      const cols = Math.max(1, Math.floor(sheetImage.width / fw));
+      const rows = Math.max(1, Math.floor(sheetImage.height / fh));
+      const rangeForRow = (rowIndex, desiredCount) => {
+        if (rowIndex >= rows) return null;
+        const count = Math.max(1, Math.min(desiredCount, cols));
+        const start = rowIndex * cols;
+        const end = start + count - 1;
+        return { start, end };
+      };
+
+      const idleR = rangeForRow(0, 2);
+      if (idleR && !this.anims.exists('p-idle')) {
+        this.anims.create({ key: 'p-idle', frames: this.anims.generateFrameNumbers('playerSheet', idleR), frameRate: 4, repeat: -1 });
+      }
+      const walkR = rangeForRow(1, 6);
+      if (walkR && !this.anims.exists('p-walk')) {
+        this.anims.create({ key: 'p-walk', frames: this.anims.generateFrameNumbers('playerSheet', walkR), frameRate: 10, repeat: -1 });
+      }
+      const jumpR = rangeForRow(2, 1);
+      if (jumpR && !this.anims.exists('p-jump')) {
+        this.anims.create({ key: 'p-jump', frames: this.anims.generateFrameNumbers('playerSheet', jumpR), frameRate: 1, repeat: -1 });
+      }
+      const fallR = rangeForRow(3, 1);
+      if (fallR && !this.anims.exists('p-fall')) {
+        this.anims.create({ key: 'p-fall', frames: this.anims.generateFrameNumbers('playerSheet', fallR), frameRate: 1, repeat: -1 });
+      }
+      const hurtR = rangeForRow(4, 1);
+      if (hurtR && !this.anims.exists('p-hurt')) {
+        this.anims.create({ key: 'p-hurt', frames: this.anims.generateFrameNumbers('playerSheet', hurtR), frameRate: 1, repeat: -1 });
+      }
+      if (this.anims.exists('p-idle') && this.playerSprite) this.playerSprite.anims.play('p-idle');
     } else if (!this.useCustomPlayer) {
       if (!this.anims.exists('player-idle')) {
         this.anims.create({ key: 'player-idle', frames: [{ key: 'player_idle' }], frameRate: 1, repeat: -1 });
@@ -298,22 +448,27 @@ class PlayScene extends Phaser.Scene {
       if (!this.anims.exists('player-jump')) {
         this.anims.create({ key: 'player-jump', frames: [{ key: 'player_jump' }], frameRate: 1, repeat: -1 });
       }
-      this.player.anims.play('player-idle');
+      if (this.playerSprite) this.playerSprite.anims.play('player-idle');
     }
-    this.player.setMaxVelocity(200, 600);
-    this.player.setDragX(1600);
+    // Physics tuning for better feel
+    this.playerBody.setMaxVelocity(220, 600);
+    this.playerBody.setDragX(1800);
 
     // Collisions
-    this.physics.add.collider(this.player, this.platforms);
+    this.physics.add.collider(this.playerBody, this.platforms);
 
     // Log keyboard capture and ensure canvas focus
     this.input.keyboard.addCapture(['LEFT', 'RIGHT', 'UP', 'SPACE', 'A', 'D']);
     this.input.on('pointerdown', () => {
       if (this.game.canvas) this.game.canvas.focus();
     });
+    // Ensure multi-touch support for on-screen controls (add 2 extra pointers)
+    if (this.input && this.input.addPointer) {
+      this.input.addPointer(2);
+    }
 
     // Overlap end flag to finish level
-    this.physics.add.overlap(this.player, this.endFlag, () => {
+    this.physics.add.overlap(this.playerBody, this.endFlag, () => {
       const timeMs = this.time.now - this.levelStartTime;
       this.registry.set('coins', this.coinCount);
       this.registry.set('timeMs', timeMs);
@@ -321,7 +476,9 @@ class PlayScene extends Phaser.Scene {
     });
 
     // Camera follow
-    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    if (this.playerBody) {
+      this.cameras.main.startFollow(this.playerBody, true, 0.1, 0.1);
+    }
     this.cameras.main.setBounds(0, 0, this.worldWidth, h);
 
     // World bounds
@@ -333,23 +490,13 @@ class PlayScene extends Phaser.Scene {
     this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
+    // Jump logic: allow double jump
+    this.maxJumps = 2;
+    this.jumpCount = 0;
+
     // Touch controls (simple): left half is left, right half is right, tap top to jump
     this.touchState = { left: false, right: false, jump: false };
-    this.input.on('pointerdown', (p) => {
-      const half = this.scale.width / 2;
-      if (p.y < this.scale.height * 0.35) {
-        this.touchState.jump = true;
-      } else if (p.x < half) {
-        this.touchState.left = true;
-      } else {
-        this.touchState.right = true;
-      }
-    });
-    this.input.on('pointerup', () => {
-      this.touchState.left = false;
-      this.touchState.right = false;
-      this.touchState.jump = false;
-    });
+    // Disabled global half-screen touch mapping to avoid conflicts with on-screen buttons
 
     // On-screen controls (always visible; handy for mobile and to ensure input works)
     this.createOnScreenControls();
@@ -391,7 +538,7 @@ class PlayScene extends Phaser.Scene {
       tint: [0xffffff, 0xfff3c4, 0xfcd34d, 0xf59e0b],
       emitting: false,
     });
-    this.physics.add.overlap(this.player, this.coins, this.handleCollectCoin, undefined, this);
+    this.physics.add.overlap(this.playerBody, this.coins, this.handleCollectCoin, undefined, this);
 
     // HUD
     this.coinText = this.add.text(12, 10, 'Coins: 0', {
@@ -436,8 +583,8 @@ class PlayScene extends Phaser.Scene {
         seg.refreshBody();
       }
     });
-    this.physics.add.overlap(this.player, this.spikes, this.handlePlayerDeath, undefined, this);
-    this.physics.add.overlap(this.player, this.lava, this.handlePlayerDeath, undefined, this);
+    this.physics.add.overlap(this.playerBody, this.spikes, this.handlePlayerDeath, undefined, this);
+    this.physics.add.overlap(this.playerBody, this.lava, this.handlePlayerDeath, undefined, this);
 
     // Moving platforms
     this.movingPlatforms = this.physics.add.group({ allowGravity: false, immovable: true });
@@ -445,17 +592,17 @@ class PlayScene extends Phaser.Scene {
     const mp2 = this.movingPlatforms.create(1700, h - 160, 'plat48');
     this.tweens.add({ targets: mp1, x: { from: 1350, to: 1500 }, duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     this.tweens.add({ targets: mp2, x: { from: 1650, to: 1850 }, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    this.physics.add.collider(this.player, this.movingPlatforms);
+    this.physics.add.collider(this.playerBody, this.movingPlatforms);
 
     // Falling platforms
     this.fallingPlatforms = this.physics.add.group({ allowGravity: false, immovable: true });
     const fp = this.fallingPlatforms.create(2100, h - 120, 'plat48');
-    this.physics.add.collider(this.player, this.fallingPlatforms, (player, platform) => {
+    this.physics.add.collider(this.playerBody, this.fallingPlatforms, (player, platform) => {
       if (!platform.falling) {
         platform.falling = true;
         this.time.delayedCall(400, () => {
           platform.setImmovable(false);
-          platform.setAllowGravity(true);
+          if (platform.body) platform.body.allowGravity = true;
         });
       }
     });
@@ -479,64 +626,86 @@ class PlayScene extends Phaser.Scene {
     });
     this.physics.add.collider(this.enemies, this.platforms);
     this.physics.add.collider(this.enemies, this.movingPlatforms);
-    this.physics.add.overlap(this.player, this.enemies, this.handleEnemyOverlap, undefined, this);
+    this.physics.add.overlap(this.playerBody, this.enemies, this.handleEnemyOverlap, undefined, this);
 
     // Checkpoints
-    this.respawnPoint = { x: 40, y: h - 60 };
+    this.respawnPoint = { x: 40, y: this.getGroundTopY() - 6 };
     this.checkpoints = this.physics.add.staticGroup();
     const cp1 = this.checkpoints.create(1200, h - 16, 'flag').setOrigin(0, 1);
     const cp2 = this.checkpoints.create(2000, h - 16, 'flag').setOrigin(0, 1);
-    this.physics.add.overlap(this.player, this.checkpoints, (player, flag) => {
+    this.physics.add.overlap(this.playerBody, this.checkpoints, (player, flag) => {
       this.respawnPoint = { x: flag.x + 10, y: flag.y - 24 };
       flag.setTint(0x10b981);
     });
   }
 
   update() {
-    const onGround = this.player.body.blocked.down || this.player.body.touching.down;
+    // Keep visual sprite glued to physics body
+    if (this.playerSprite && this.playerBody) {
+      this.playerSprite.x = this.playerBody.x;
+      this.playerSprite.y = this.playerBody.body.bottom;
+    }
+    const onGround = this.playerBody.body.blocked.down || this.playerBody.body.touching.down;
+    // Only auto-align if the body has sunk below the ground line (safety clamp)
+    const groundTop = this.useTiles ? this.scale.height - 32 : this.scale.height - 16;
+    // Let the player fully fall off-screen; handle reset when out of view
+    if (onGround) {
+      this.jumpCount = 0; // reset available jumps when we touch the ground
+    }
     const moveLeft = this.cursors.left.isDown || this.keyA.isDown || this.touchState.left;
     const moveRight = this.cursors.right.isDown || this.keyD.isDown || this.touchState.right;
     const wantsJump = Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.keySpace) || this.touchState.jump;
 
     if (moveLeft) {
-      this.player.setAccelerationX(-800);
-      this.player.setFlipX(true);
+      this.playerBody.setAccelerationX(-900);
+      if (this.playerSprite) this.playerSprite.setFlipX(true);
     } else if (moveRight) {
-      this.player.setAccelerationX(800);
-      this.player.setFlipX(false);
+      this.playerBody.setAccelerationX(900);
+      if (this.playerSprite) this.playerSprite.setFlipX(false);
     } else {
-      this.player.setAccelerationX(0);
+      this.playerBody.setAccelerationX(0);
     }
 
-    if (wantsJump && onGround) {
-      this.player.setVelocityY(-420);
+    if (wantsJump && (onGround || this.jumpCount < this.maxJumps)) {
+      this.playerBody.setVelocityY(-440);
       this.touchState.jump = false;
+      this.jumpCount += 1;
       if (window.SimpleAudio) window.SimpleAudio.playJump();
     }
 
-    // Switch simple animations for placeholder character
-    if (hasSheet) {
+    // Clamp horizontal position within world bounds, but allow falling vertically
+    if (this.playerBody.x < 8) this.playerBody.setX(8);
+    if (this.playerBody.x > this.worldWidth - 8) this.playerBody.setX(this.worldWidth - 8);
+
+    // Switch simple animations for placeholder or sheet character
+    if (!this.disableAnimations && this.hasSheet) {
+      let keyToPlay = null;
       if (!onGround) {
-        const key = this.player.body.velocity.y < 0 ? 'p-jump' : 'p-fall';
-        this.player.anims.play(key, true);
+        const rising = this.playerBody.body.velocity.y < 0;
+        keyToPlay = rising
+          ? (this.anims.exists('p-jump') ? 'p-jump' : (this.anims.exists('p-fall') ? 'p-fall' : 'p-idle'))
+          : (this.anims.exists('p-fall') ? 'p-fall' : (this.anims.exists('p-jump') ? 'p-jump' : 'p-idle'));
       } else if (moveLeft || moveRight) {
-        this.player.anims.play('p-walk', true);
-      } else {
-        this.player.anims.play('p-idle', true);
+        keyToPlay = this.anims.exists('p-walk') ? 'p-walk' : 'p-idle';
+      } else if (this.anims.exists('p-idle')) {
+        keyToPlay = 'p-idle';
       }
-    } else if (!this.useCustomPlayer) {
+      if (keyToPlay) this.playerSprite.anims.play(keyToPlay, true);
+    } else if (!this.disableAnimations && !this.useCustomPlayer && this.playerSprite && this.playerSprite.anims) {
       if (!onGround) {
-        this.player.anims.play('player-jump', true);
+        this.playerSprite.anims.play('player-jump', true);
       } else if (moveLeft || moveRight) {
-        this.player.anims.play('player-walk', true);
+        this.playerSprite.anims.play('player-walk', true);
       } else {
-        this.player.anims.play('player-idle', true);
+        this.playerSprite.anims.play('player-idle', true);
       }
     }
 
     // Fell into a pit
-    if (this.player.y > this.scale.height + 60) {
-      this.handlePlayerDeath();
+    if (this.playerBody.y > this.scale.height + 60) {
+      // Fell into void: silently reset above last checkpoint and drop in
+      this.safeRespawn();
+      return;
     }
   }
 
@@ -553,14 +722,13 @@ class PlayScene extends Phaser.Scene {
   handlePlayerDeath() {
     if (this.isRespawning) return;
     this.isRespawning = true;
-    this.cameras.main.flash(200, 255, 64, 64);
-    this.player.setTint(0xff8a8a);
+    this.cameras.main.flash(this.deathFlashMs ?? 250, 255, 64, 64);
+    if (this.playerSprite) this.playerSprite.setTint(0xff8a8a);
     if (window.SimpleAudio) window.SimpleAudio.playHit();
     this.time.delayedCall(200, () => {
-      this.player.clearTint();
-      this.player.setVelocity(0, 0);
-      this.player.setX(this.respawnPoint.x);
-      this.player.setY(this.respawnPoint.y);
+      if (this.playerSprite) this.playerSprite.clearTint();
+      // Spawn above and let gravity pull the player down
+      this.safeRespawn();
       this.isRespawning = false;
     });
   }
@@ -579,24 +747,44 @@ class PlayScene extends Phaser.Scene {
 
   createOnScreenControls() {
     const { width, height } = this.scale;
-    const padY = height - 60;
-    const leftX = 70;
-    const rightX = 140;
-    const jumpX = width - 70;
+    // Try to respect mobile safe-area by estimating bottom inset
+    const vv = (window && window.visualViewport) ? window.visualViewport : null;
+    const safeInset = vv ? Math.max(0, (window.innerHeight || height) - vv.height) : 0;
+    const padY = height - 60 - Math.min(40, safeInset);
+    // Portrait-friendly layout: left/right bottom left, jump bottom right
+    const margin = 18;
+    const leftX = margin + 36;
+    const rightX = margin + 100;
+    const jumpX = width - (margin + 36);
 
-    const makeBtn = (x, y, iconKey, onDown, onUp) => {
+    // Track active touches per button to avoid conflicts and support multi-touch
+    if (!this.touchActive) {
+      this.touchActive = { left: new Set(), right: new Set(), jump: new Set() };
+    }
+
+    const recomputeTouchState = () => {
+      this.touchState.left = this.touchActive.left.size > 0;
+      this.touchState.right = this.touchActive.right.size > 0;
+      this.touchState.jump = this.touchActive.jump.size > 0;
+    };
+
+    const makeBtn = (x, y, iconKey, key) => {
       const base = this.add.image(x, y, 'btnBase').setScrollFactor(0).setDepth(2000).setInteractive({ useHandCursor: true });
       this.add.image(x, y, iconKey).setScrollFactor(0).setDepth(2001).setAlpha(0.9);
-      base.on('pointerdown', () => { onDown(); });
-      base.on('pointerup', () => { onUp(); });
-      base.on('pointerout', () => { onUp(); });
-      base.on('pointercancel', () => { onUp(); });
+      const addPtr = (pointer) => { this.touchActive[key].add(pointer.id); recomputeTouchState(); };
+      const delPtr = (pointer) => { this.touchActive[key].delete(pointer.id); recomputeTouchState(); };
+      const stop = (pointer) => { if (pointer && pointer.event && pointer.event.stopPropagation) pointer.event.stopPropagation(); };
+      base.on('pointerdown', (pointer) => { stop(pointer); addPtr(pointer); });
+      base.on('pointerup',   (pointer) => { stop(pointer); delPtr(pointer); });
+      base.on('pointerout',  (pointer) => { stop(pointer); delPtr(pointer); });
+      base.on('pointercancel', (pointer) => { stop(pointer); delPtr(pointer); });
       return base;
     };
 
-    makeBtn(leftX, padY, 'btnLeftIcon', () => { this.touchState.left = true; }, () => { this.touchState.left = false; });
-    makeBtn(rightX, padY, 'btnRightIcon', () => { this.touchState.right = true; }, () => { this.touchState.right = false; });
-    makeBtn(jumpX, padY, 'btnJumpIcon', () => { this.touchState.jump = true; }, () => { this.touchState.jump = false; });
+    // Left/right/up mapping
+    makeBtn(leftX, padY, 'btnLeftIcon', 'left');
+    makeBtn(rightX, padY, 'btnRightIcon', 'right');
+    makeBtn(jumpX, padY, 'btnJumpIcon', 'jump');
   }
 }
 
